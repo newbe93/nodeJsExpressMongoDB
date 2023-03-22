@@ -3,7 +3,8 @@ const app = express();
 app.use(express.urlencoded({ extended: true }));
 app.set("view engine", "ejs");
 const MongoClient = require("mongodb").MongoClient;
-
+const methodOverride = require("method-override");
+app.use(methodOverride("_method"));
 app.use("/public", express.static("public"));
 
 var db;
@@ -71,5 +72,103 @@ app.get("/detail/:id", function (req, response) {
   db.collection("post").findOne({ _id: parseInt(req.params.id) }, function (err, result) {
     console.log(result);
     response.render("detail.ejs", { data: result });
+  });
+});
+
+app.get("/edit/:id", function (req, response) {
+  db.collection("post").findOne({ _id: parseInt(req.params.id) }, function (err, result) {
+    response.render("edit.ejs", { data: result });
+  });
+});
+
+app.put("/edit", function (req, response) {
+  // 폼에 담긴 데이터를 가지고 post collection에 업데이트.
+
+  db.collection("post").updateOne({ _id: parseInt(req.body.id) }, { $set: { 제목: req.body.title, 날짜: req.body.date } }, function (err, result) {
+    console.log("수정오나료");
+    response.redirect("/list");
+  });
+});
+
+const passport = require("passport");
+const LocalStrategy = require("passport-local").Strategy;
+const session = require("express-session");
+
+// app.use(미들웨어) : 미들웨어를 쓰겠다.
+// 미들웨어 ? 웹서버는 요청-응답 중간에 뭔가 실행되는 코드
+app.use(session({ secret: "비밀코드", resave: true, saveUninitialized: false }));
+app.use(passport.initialize());
+app.use(passport.session());
+
+app.get("/login", function (req, res) {
+  res.render("login.ejs");
+});
+
+// local 방식으로 회원인지 인증해주세요
+app.post(
+  "/login",
+  passport.authenticate("local", {
+    failureRedirect: "/fail",
+  }),
+  function (req, res) {
+    res.redirect("/");
+  }
+);
+
+// 마이페이지 접속
+app.get("/mypage", isLogin, function (req, res) {
+  console.log(req.user);
+  res.render("mypage.ejs", { 사용자: req.user });
+});
+
+// 미들웨어 만들기
+function isLogin(req, res, next) {
+  if (req.user) {
+    // 로그인 후 세션이 있으면 항상 req.user가 있다.
+    next(); // 통과
+  } else {
+    res.send("로그인 안하셨는데요");
+  }
+}
+
+// 인증하는 방법을 strategy라고 함.
+passport.use(
+  new LocalStrategy(
+    {
+      usernameField: "id", // 폼에 작성한 name
+      passwordField: "pw",
+      session: true,
+      passReqToCallback: false,
+    },
+    function (입력한아이디, 입력한비번, done) {
+      //console.log(입력한아이디, 입력한비번);
+      db.collection("login").findOne({ id: 입력한아이디 }, function (에러, 결과) {
+        if (에러) return done(에러); // done(서버에러, 성공시 사용자 DB데이터(아이디 비번 안맞으면 false), 에러메세지 )
+
+        if (!결과) return done(null, false, { message: "존재하지않는 아이디요" });
+        if (입력한비번 == 결과.pw) {
+          return done(null, 결과);
+        } else {
+          return done(null, false, { message: "비번틀렸어요" });
+        }
+      });
+    }
+  )
+);
+
+// 5. 세션만들기
+// 세션 저장시키는 코드(로그인 성공시 발동)
+passport.serializeUser(function (user, done) {
+  // 위의 doen(null, 결과) 의 결과가 user로 들어감.
+  done(null, user.id);
+});
+
+// 로그인한 유저의 개인정보를 DB에서 찾는 역할
+// 이 세션 데이터를 가진 사람을 DB에서 찾아주세요 (마이페이지 접속시 발동)
+// 로그인해있으면 아이디에 user.id가 자동으로 들어감
+passport.deserializeUser(function (아이디, done) {
+  // DB에서 위에있는 user.id로 유저를 찾은 뒤에 유저 정보(result)를 넣어줌.
+  db.collection("login").findOne({ id: 아이디 }, function (err, result) {
+    done(null, result); //  안에 넣음 -> mypage get요청할때 req.user에 담겨짐.
   });
 });
