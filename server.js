@@ -6,14 +6,15 @@ const MongoClient = require("mongodb").MongoClient;
 const methodOverride = require("method-override");
 app.use(methodOverride("_method"));
 app.use("/public", express.static("public"));
+require("dotenv").config();
 
 var db;
 
 // MongoDB 접속이 되면 callback 함수 실행해주세요.
-MongoClient.connect("mongodb+srv://newbe93:newbe0516@cluster0.tjifyhq.mongodb.net/todoapp?retryWrites=true&w=majority", function (error, client) {
+MongoClient.connect(process.env.DB_URL, function (error, client) {
   if (error) return console.log(error);
   db = client.db("todoapp");
-  app.listen(8080, function () {
+  app.listen(process.env.PORT, function () {
     console.log("listening on 8080");
   }); // 8080 포트로 들어올때 callback 함수를 실행해주세요.
 });
@@ -34,21 +35,6 @@ app.get("/write", function (req, res) {
   res.render("write.ejs");
 });
 
-app.post("/add", (req, response) => {
-  response.send("전송완료");
-  db.collection("counter").findOne({ name: "게시물갯수" }, function (err, result) {
-    console.log(result.totalPost);
-    var totalPostNum = result.totalPost;
-    // DB에 저장해주세요
-    db.collection("post").insertOne({ _id: totalPostNum + 1, 제목: req.body.title, 날짜: req.body.date }, function (err, result) {
-      // coutner 라는 콜렉션에 있는 totalPost 라는 항목도 1 증가 (수정)
-      db.collection("counter").updateOne({ name: "게시물갯수" }, { $inc: { totalPost: 1 } }, function (err, result) {
-        if (err) return console.log(err);
-      });
-    });
-  });
-});
-
 app.get("/list", function (req, response) {
   // db에 저장된 post라는 collection안의 모든 데이터를 꺼내주세요
   db.collection("post")
@@ -57,15 +43,6 @@ app.get("/list", function (req, response) {
       console.log(result);
       response.render("list.ejs", { posts: result });
     });
-});
-
-app.delete("/delete", function (req, response) {
-  req.body._id = parseInt(req.body._id);
-  // db에서 삭제해주세요
-  db.collection("post").deleteOne(req.body, function (error, result) {
-    console.log("삭제완료");
-    response.status(200).send({ message: "성공했습니다." });
-  });
 });
 
 app.get("/detail/:id", function (req, response) {
@@ -172,3 +149,69 @@ passport.deserializeUser(function (아이디, done) {
     done(null, result); //  안에 넣음 -> mypage get요청할때 req.user에 담겨짐.
   });
 });
+
+// 회원가입 기능
+app.post("/register", function (req, res) {
+  db.collection("login").insertOne({ id: req.body.id, pw: req.body.pw }, function (err, result) {
+    res.redirect("/");
+  });
+});
+
+// 글쓰기
+app.post("/add", (req, response) => {
+  response.send("전송완료");
+  db.collection("counter").findOne({ name: "게시물갯수" }, function (err, result) {
+    console.log(result.totalPost);
+    var totalPostNum = result.totalPost;
+    var 저장할거 = { _id: totalPostNum + 1, 작성자: req.user._id, 제목: req.body.title, 날짜: req.body.date };
+    // DB에 저장해주세요
+    db.collection("post").insertOne(저장할거, function (err, result) {
+      // coutner 라는 콜렉션에 있는 totalPost 라는 항목도 1 증가 (수정)
+      db.collection("counter").updateOne({ name: "게시물갯수" }, { $inc: { totalPost: 1 } }, function (err, result) {
+        if (err) return console.log(err);
+      });
+    });
+  });
+});
+
+// 게시물 삭제 기능
+app.delete("/delete", function (req, response) {
+  req.body._id = parseInt(req.body._id);
+
+  var 삭제할데이터 = { _id: req.body._id, 작성자: req.user._id };
+  // db에서 삭제해주세요
+  db.collection("post").deleteOne(삭제할데이터, function (error, result) {
+    console.log("삭제완료");
+    response.status(200).send({ message: "성공했습니다." });
+  });
+});
+
+// query string 으로 get요청하기
+app.get("/search", (req, res) => {
+  var 검색조건 = [
+    {
+      $search: {
+        index: "titleSearch",
+        text: {
+          query: req.query.value,
+          path: "제목", // 제목날짜 둘다 찾고 싶으면 ['제목', '날짜']
+        },
+      },
+    },
+    // { $sort: { _id: 1 } }, // 검색조건 더 주는 법 -결과 정렬하기
+    // { $limit: 10 }, // 상위 10개만 가져와주세요
+    // { $project: { 제목: 1, _id: 0, score: { $meta: "searchScore" } } },
+  ];
+  console.log(req.query.value);
+  db.collection("post")
+    .aggregate(검색조건)
+    .toArray(function (err, result) {
+      res.render("search.ejs", { posts: result });
+    });
+});
+
+// app.use("/", require("./routes/shop.js"));
+// or
+app.use("/shop", require("./routes/shop.js"));
+
+app.use("/board", require("./routes/board.js"));
